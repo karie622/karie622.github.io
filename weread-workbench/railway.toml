@@ -1,0 +1,9 @@
+# Railway 部署配置（Root Directory = weread-workbench）
+# 说明：OFFLINE / PUBLIC_URL 为非敏感配置，写入仓库由 Railway 自动注入；
+#       敏感密钥 OFFLINE_KEY 仅存于 Railway 后台 Variables，不进入公开仓库。
+[build]
+dockerfilePath = "Dockerfile"
+# 离线模式（绕过微信读书网关对数据中心 IP 的屏蔽）：读取 data/*.enc 加密数据包
+[variables]
+OFFLINE = "1"
+PUBLIC_URL = "https://karie622githubio-production.up.railway.app"
