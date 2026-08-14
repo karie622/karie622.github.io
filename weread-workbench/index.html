@@ -1,0 +1,381 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>微信读书工作台</title>
+<style>
+  :root{
+    --bg:#f5f7fa; --card:#ffffff; --ink:#1f2937; --sub:#6b7280;
+    --line:#e5e7eb; --brand:#07a35a; --brand-d:#068a4c;
+    --accent:#2563eb; --warn:#d97706; --chip:#eef2f7;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif;
+    background:var(--bg);color:var(--ink);font-size:14px;line-height:1.6}
+  header{background:linear-gradient(120deg,#07a35a,#0fb06a);color:#fff;padding:18px 26px;box-shadow:0 2px 8px rgba(0,0,0,.08)}
+  header h1{margin:0;font-size:19px;font-weight:700;letter-spacing:.5px}
+  header .st{margin-top:4px;font-size:12px;opacity:.92}
+  .wrap{max-width:1080px;margin:0 auto;padding:18px}
+  .tabs{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:16px}
+  .tab{padding:9px 16px;border:1px solid var(--line);background:var(--card);border-radius:10px;cursor:pointer;font-weight:600;color:var(--sub)}
+  .tab.active{background:var(--brand);color:#fff;border-color:var(--brand)}
+  .panel{display:none}
+  .panel.active{display:block}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:18px;margin-bottom:16px;box-shadow:0 1px 3px rgba(0,0,0,.04)}
+  .card h3{margin:0 0 12px;font-size:15px}
+  .row{display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin-bottom:10px}
+  input[type=text]{flex:1;min-width:200px;padding:10px 12px;border:1px solid var(--line);border-radius:10px;font-size:14px;outline:none}
+  input[type=text]:focus{border-color:var(--brand)}
+  button{padding:10px 16px;border:none;border-radius:10px;background:var(--brand);color:#fff;font-weight:600;cursor:pointer;font-size:14px}
+  button:hover{background:var(--brand-d)}
+  button.alt{background:var(--accent)}
+  button.alt:hover{background:#1d4ed8}
+  button.ghost{background:var(--chip);color:var(--ink)}
+  button:disabled{opacity:.55;cursor:not-allowed}
+  .hint{color:var(--sub);font-size:12.5px;margin:6px 0}
+  .badge{display:inline-block;padding:2px 8px;border-radius:999px;font-size:11px;background:var(--chip);color:var(--sub);margin-left:6px}
+  .badge.hl{background:#dcfce7;color:#15803d}
+  .badge.nt{background:#dbeafe;color:#1d4ed8}
+  .res{border:1px solid var(--line);border-radius:12px;padding:14px;margin-bottom:12px}
+  .res .meta{font-weight:700;margin-bottom:4px}
+  .res .meta a{color:var(--brand);text-decoration:none}
+  .res .ctx{background:#f8fafc;border-left:3px solid var(--brand);padding:10px 12px;border-radius:8px;white-space:pre-wrap;color:#374151;font-size:13.5px}
+  mark{background:#fde68a;padding:0 1px;border-radius:2px}
+  textarea{width:100%;min-height:240px;padding:12px;border:1px solid var(--line);border-radius:10px;font-size:13px;
+    font-family:ui-monospace,Menlo,Consolas,monospace;line-height:1.55;resize:vertical;outline:none}
+  .chips{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px}
+  .chip{padding:6px 12px;border-radius:999px;background:var(--chip);cursor:pointer;font-size:13px;border:1px solid transparent}
+  .chip.active{background:var(--brand);color:#fff}
+  .blist{max-height:340px;overflow:auto;border:1px solid var(--line);border-radius:10px}
+  .bitem{padding:9px 12px;border-bottom:1px solid var(--line);cursor:pointer;display:flex;justify-content:space-between;gap:10px}
+  .bitem:hover{background:#f0fdf4}
+  .bitem .au{color:var(--sub);font-size:12px;white-space:nowrap}
+  .bitem .read-btn{color:#16a34a;font-size:12px;white-space:nowrap;text-decoration:none;border:1px solid #16a34a33;border-radius:4px;padding:1px 6px}
+  .toc{background:#f8fafc;border:1px solid var(--line);border-radius:10px;padding:12px;max-height:360px;overflow:auto}
+  .toc .lv1{font-weight:700;margin-top:8px}
+  .toc .lv2{padding-left:18px;color:#374151}
+  .toc .lv3{padding-left:36px;color:var(--sub);font-size:13px}
+  .toc .wc{color:var(--sub);font-size:11px;margin-left:6px}
+  .pk{white-space:pre-wrap;background:#0f172a;color:#e2e8f0;padding:14px;border-radius:10px;font-size:13px;line-height:1.6;max-height:420px;overflow:auto;font-family:ui-monospace,Menlo,Consolas,monospace}
+  .note{background:#fffbeb;border:1px solid #fde68a;color:#92400e;padding:10px 12px;border-radius:10px;font-size:12.5px;margin-top:10px}
+  .ok{color:var(--brand-d);font-weight:600}
+  .err{color:#dc2626;font-weight:600}
+  .muted{color:var(--sub)}
+  .grid2{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+  @media(max-width:780px){.grid2{grid-template-columns:1fr}}
+  .stat{font-size:13px;color:var(--sub)}
+</style>
+</head>
+<body>
+<header>
+  <h1>📚 微信读书工作台</h1>
+  <div class="st" id="status">正在连接…</div>
+</header>
+
+<div class="wrap">
+  <div class="tabs">
+    <div class="tab active" data-tab="t1">🔍 内容检索</div>
+    <div class="tab" data-tab="t2">🎭 作者对话</div>
+    <div class="tab" data-tab="t3">🗂️ 书架与目录</div>
+    <div class="tab" data-tab="t4">✍️ 创作助手</div>
+    <div class="tab" data-tab="tPhone">📱 手机访问</div>
+  </div>
+
+  <!-- 手机扫码访问 -->
+  <section class="panel" id="tPhone">
+    <div class="card">
+      <h3>📱 手机端访问本工作台</h3>
+      <div class="hint">让手机和电脑连同一个 Wi-Fi，用微信/浏览器扫下面的二维码，即可在手机上浏览书架、检索内容；点任意书的「阅读」会直接调起手机上的微信读书 App 打开该书。</div>
+      <div class="grid2" style="align-items:center">
+        <div style="text-align:center">
+          <div id="qrcode" style="display:inline-block;padding:8px;background:#fff;border:1px solid var(--line);border-radius:10px"></div>
+          <div style="margin-top:6px;text-align:center">
+            <button onclick="document.getElementById('qrcode').removeAttribute('data-done');loadLanInfo();" style="font-size:12px;padding:3px 10px;cursor:pointer;border:1px solid var(--line);border-radius:4px;background:transparent">🔄 刷新二维码</button>
+          </div>
+          <div class="stat" id="lanUrl" style="margin-top:8px;word-break:break-all">获取中…</div>
+        </div>
+        <div>
+          <div class="hint" style="margin-top:0"><b>三步使用：</b></div>
+          <div style="font-size:13.5px;line-height:1.9">
+            1. 电脑端用 <code>python server.py --host 0.0.0.0</code> 启动（允许局域网访问）<br>
+            2. 手机扫码打开页面（或浏览器手输上面的地址）<br>
+            3. 点书的「阅读」→ 自动跳微信读书 App 读对应书
+          </div>
+          <div class="note" id="lanWarn" style="margin-top:10px;display:none">⚠ 当前服务仅监听本机（127.0.0.1），手机无法访问。请改用 <code>--host 0.0.0.0</code> 重启服务。</div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 功能一 -->
+  <section class="panel active" id="t1">
+    <div class="card">
+      <h3>根据关键词检索书架中书籍的内容（含上下文）</h3>
+      <div class="hint">检索范围：你在书架书籍中保存的<b>划线</b>与<b>想法/笔记</b>（即你从书中摘录的真实内容）。首次使用需先建立本地内容索引（约十几秒，仅做一次，之后可离线检索）。</div>
+      <div class="row">
+        <button id="btnIndex" class="ghost">① 建立 / 刷新内容索引</button>
+        <span class="stat" id="indexStat"></span>
+      </div>
+      <div class="row">
+        <input type="text" id="kw" placeholder="输入关键词，如：情绪、接纳、意识、爱…">
+        <button id="btnSearch">② 检索（含约80字上下文）</button>
+      </div>
+      <div id="searchOut"></div>
+    </div>
+  </section>
+
+  <!-- 功能二 -->
+  <section class="panel" id="t2">
+    <div class="card">
+      <h3>根据书籍内容创建作者角色，与「作者」对话</h3>
+      <div class="hint">选择一本书，工作台会汇总该书的简介、热门划线（核心观点）与你标记的句段，按「智识身份」框架生成一份<b>作者角色构建包</b>。复制后发给 <b>WorkBuddy（我）</b>，我会据此以第一人称扮演该作者与你对话。</div>
+      <div class="row">
+        <input type="text" id="bookPick" placeholder="搜索书名 / 作者…">
+        <button id="btnPick">查找</button>
+      </div>
+      <div class="blist" id="pickList" style="margin-bottom:12px"></div>
+      <div class="hint">也可直接粘贴 bookId：</div>
+      <div class="row">
+        <input type="text" id="bookIdInput" placeholder="bookId，如 3300128700">
+        <button id="btnAuthor">生成作者角色包</button>
+      </div>
+      <div id="authorOut"></div>
+    </div>
+  </section>
+
+  <!-- 功能三 -->
+  <section class="panel" id="t3">
+    <div class="card">
+      <h3>书籍分类 · 全部书单 · 选中书籍目录总结</h3>
+      <div class="hint">下方按主题对书架（共 <span id="totalN">—</span> 本）做分类，可搜索 / 筛选；点击任意书籍查看其目录结构与简要结构总结。</div>
+      <div class="chips" id="catChips"></div>
+      <div class="row"><input type="text" id="bookFilter" placeholder="在书单中筛选…"></div>
+      <div class="blist" id="bookList"></div>
+      <div id="tocOut" style="margin-top:14px"></div>
+    </div>
+  </section>
+
+  <!-- 功能四 -->
+  <section class="panel" id="t4">
+    <div class="card">
+      <h3>根据标题检索相关观点，辅助你的创作</h3>
+      <div class="hint">输入你的创作主题 / 标题，工作台会从你书架的相关书籍中提取可能有关的观点与素材，并附上延伸阅读。复制「素材包」发给 <b>WorkBuddy（我）</b>，说明创作方向，我帮你梳理观点、搭建结构、提供灵感。</div>
+      <div class="row">
+        <input type="text" id="titleIn" placeholder="例如：如何在不确定中保持内心安定">
+        <button id="btnCreate">检索相关观点</button>
+      </div>
+      <div id="createOut"></div>
+    </div>
+  </section>
+</div>
+
+<script src="qrcode.min.js"></script>
+<script>
+const $ = s => document.querySelector(s);
+// 自动适配：本机访问用当前 origin，局域网/手机访问也自动指向正确地址
+const BASE = window.location.origin || '';
+const api = (p, body) => fetch(BASE + p, {method:'POST', headers:{'Content-Type':'application/json'},
+  body: JSON.stringify(body||{})}).then(r=>r.json());
+const esc = s => (s||'').replace(/[&<>]/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
+const hl = (txt, kw) => { kw=(kw||'').trim(); if(!kw) return esc(txt);
+  try{ const re=new RegExp('('+kw.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')+')','gi');
+    return esc(txt).replace(re,'<mark>$1</mark>'); }catch(e){ return esc(txt); } };
+function copy(text){ navigator.clipboard?.writeText(text).then(()=>toast('已复制'), ()=>fallbackCopy(text)); }
+function fallbackCopy(t){ const ta=document.createElement('textarea'); ta.value=t; document.body.appendChild(ta);
+  ta.select(); try{document.execCommand('copy'); toast('已复制');}catch(e){toast('复制失败，请手动选择');} document.body.removeChild(ta); }
+let toastTimer;
+function toast(m){ let t=$('#toast'); if(!t){ t=document.createElement('div'); t.id='toast';
+  t.style.cssText='position:fixed;bottom:24px;left:50%;transform:translateX(-50%);background:#111;color:#fff;padding:10px 16px;border-radius:10px;z-index:99;font-size:13px';
+  document.body.appendChild(t);} t.textContent=m; t.style.opacity='1';
+  clearTimeout(toastTimer); toastTimer=setTimeout(()=>t.style.opacity='0',1800); }
+
+// tabs
+document.querySelectorAll('.tab').forEach(t=>t.onclick=()=>{
+  document.querySelectorAll('.tab').forEach(x=>x.classList.remove('active'));
+  document.querySelectorAll('.panel').forEach(x=>x.classList.remove('active'));
+  t.classList.add('active'); $('#'+t.dataset.tab).classList.add('active');
+  if(t.dataset.tab==='t3') loadCategories();
+  if(t.dataset.tab==='tPhone') loadLanInfo();
+});
+
+// status
+fetch(BASE + '/api/health').then(r=>r.json()).then(d=>{
+  let s = d.has_key ? '✅ API Key 已就绪' : '⚠️ 未检测到 Key';
+  s += d.index_exists ? ' ｜ 内容索引：已建立' : ' ｜ 内容索引：未建立';
+  $('#status').textContent = s;
+}).catch(()=> $('#status').textContent='⚠️ 无法连接本地服务');
+
+// ---- 功能一 ----
+$('#btnIndex').onclick = async ()=>{
+  const b=$('#btnIndex'); b.disabled=true; b.textContent='建立中…（首次约十几秒）';
+  try{ const d=await api('/api/build_index',{});
+    $('#indexStat').innerHTML = d.error? ('<span class="err">'+esc(d.error)+'</span>')
+      : ('<span class="ok">已索引 '+d.books_with_content+' 本书，共 '+d.total_items+' 条划线/想法</span>');
+  }catch(e){ $('#indexStat').innerHTML='<span class="err">失败：'+esc(e)+'</span>'; }
+  b.disabled=false; b.textContent='① 建立 / 刷新内容索引';
+};
+$('#btnSearch').onclick = async ()=>{
+  const kw=$('#kw').value.trim(); if(!kw){ toast('请输入关键词'); return; }
+  const out=$('#searchOut'); out.innerHTML='<div class="hint">检索中…</div>';
+  try{ const d=await api('/api/search_content',{keyword:kw});
+    if(d.error){ out.innerHTML='<div class="err">'+esc(d.error)+'</div>'; return; }
+    if(!d.results.length){ out.innerHTML='<div class="hint">未在你的划线/想法中找到「'+esc(kw)+'」相关内容。可尝试更短的关键词，或先在微信读书里给该书做几条划线。</div>'; return; }
+    out.innerHTML='<div class="stat">共找到 <b>'+d.count+'</b> 处命中（显示前 '+d.results.length+' 处）：</div>';
+    d.results.forEach(r=>{
+      const appUrl = r.appUrl || '';
+      const readUrl = r.readerUrl || (r.bookId ? 'https://weread.qq.com/web/reader/'+esc(r.bookId) : '');
+      const link = appUrl ? '<a href="'+esc(appUrl)+'" title="调起微信读书桌面App打开本书">打开阅读 ↗</a>' : (readUrl ? '<a href="'+readUrl+'" target="_blank" title="网页版（可能需要App）">网页阅读 ↗</a>':'');
+      const badge = r.type==='note'? '<span class="badge nt">你的想法</span>':'<span class="badge hl">划线</span>';
+      out.insertAdjacentHTML('beforeend',
+        '<div class="res"><div class="meta">《'+esc(r.title)+'》 '+esc(r.author)+' '+badge+' <span class="muted">· '+esc(r.chapterTitle)+'</span> '+link+'</div>'+
+        '<div class="ctx">'+hl(r.context, kw)+'</div></div>');
+    });
+  }catch(e){ out.innerHTML='<span class="err">检索失败：'+esc(e)+'</span>'; }
+};
+
+// ---- 功能二 ----
+let ALL_BOOKS=[];
+async function ensureBooks(){ if(ALL_BOOKS.length) return;
+  const d=await api('/api/categories',{}); ALL_BOOKS=d.all_books||[]; }
+$('#btnPick').onclick = async ()=>{
+  await ensureBooks(); const q=$('#bookPick').value.trim().toLowerCase();
+  const list=ALL_BOOKS.filter(b=>(b.title+' '+b.author).toLowerCase().includes(q)).slice(0,40);
+  const el=$('#pickList');
+  if(!list.length){ el.innerHTML='<div class="hint">未匹配到书籍</div>'; return; }
+  el.innerHTML=list.map(b=>'<div class="bitem" data-id="'+esc(b.bookId)+'"><span>《'+esc(b.title)+'》</span><span class="au">'+esc(b.author)+'</span>'+(b.appUrl?'<a href="'+esc(b.appUrl)+'" title="调起桌面App" class="read-btn">阅读</a>':(b.readerUrl?'<a href="'+esc(b.readerUrl)+'" target="_blank" class="read-btn">网页</a>':''))+'</div>').join('');
+  el.querySelectorAll('.bitem').forEach(it=>it.onclick=()=>{ $('#bookIdInput').value=it.dataset.id;
+    el.querySelectorAll('.bitem').forEach(x=>x.style.background=''); it.style.background='#d1fae5'; toast('已选择：'+it.querySelector('span').textContent); });
+};
+$('#btnAuthor').onclick = async ()=>{
+  const id=$('#bookIdInput').value.trim(); if(!id){ toast('请先选择或粘贴 bookId'); return; }
+  const out=$('#authorOut'); out.innerHTML='<div class="hint">生成中…</div>';
+  const d=await api('/api/author_pack',{bookId:id});
+  if(d.error||!d.package){ out.innerHTML='<div class="err">生成失败：'+(d.error||'未知')+'</div>'; return; }
+  out.innerHTML='<h3 class="ok">《'+esc(d.title)+'》· 作者【'+esc(d.author)+'】· 智识身份构建包</h3>'+
+    '<div class="pk" id="apk">'+esc(d.package)+'</div>'+
+    '<div class="row" style="margin-top:10px"><button onclick="copy(document.getElementById(\'apk\').textContent)">复制角色包</button>'+
+    '<button class="ghost" onclick="document.getElementById(\'apk\').textContent=\'\'">清空</button></div>'+
+    '<div class="note">👉 把上面这份「智识身份构建包」原样发给我（WorkBuddy），然后直接用第一人称与我交流，例如：「作者你好，我想问你关于……」。我会依据框架里的「书籍素材」填充角色，以该作者身份与观点回应你。</div>';
+};
+
+// ---- 功能三 ----
+let CATS=[], filtered=[];
+async function loadCategories(){ if(CATS.length) return;
+  const d=await api('/api/categories',{}); CATS=d.categories||[]; $('#totalN').textContent=d.total||'?';
+  const chips=$('#catChips'); chips.innerHTML='<div class="chip active" data-cat="__all">全部 ('+ (d.total||0) +')</div>'+
+    CATS.map(c=>'<div class="chip" data-cat="'+esc(c.name)+'">'+esc(c.name)+' ('+c.count+')</div>').join('');
+  chips.querySelectorAll('.chip').forEach(ch=>ch.onclick=()=>{ chips.querySelectorAll('.chip').forEach(x=>x.classList.remove('active'));
+    ch.classList.add('active'); renderBookList(ch.dataset.cat); });
+  renderBookList('__all');
+}
+function allBooksFlat(){ const a=[]; CATS.forEach(c=>c.books.forEach(b=>{ if(!a.find(x=>x.bookId===b.bookId)) a.push(b); })); return a; }
+function renderBookList(cat){
+  let books = cat==='__all'? allBooksFlat() : (CATS.find(c=>c.name===cat)?.books||[]);
+  const q=$('#bookFilter').value.trim().toLowerCase();
+  if(q) books=books.filter(b=>(b.title+' '+b.author).toLowerCase().includes(q));
+  filtered=books;
+  const el=$('#bookList');
+  if(!books.length){ el.innerHTML='<div class="hint">无匹配书籍</div>'; return; }
+  el.innerHTML=books.slice(0,300).map(b=>'<div class="bitem" data-id="'+esc(b.bookId)+'"><span>《'+esc(b.title)+'》</span><span class="au">'+esc(b.author)+'</span>'+(b.appUrl?'<a href="'+esc(b.appUrl)+'" title="调起桌面App" class="read-btn">阅读</a>':(b.readerUrl?'<a href="'+esc(b.readerUrl)+'" target="_blank" class="read-btn">网页</a>':''))+'</div>').join('');
+  el.querySelectorAll('.bitem').forEach(it=>it.onclick=()=>loadToc(it.dataset.id, it.querySelector('span').textContent));
+}
+$('#bookFilter').oninput=()=>{ const act=document.querySelector('#catChips .chip.active'); if(act) renderBookList(act.dataset.cat); };
+async function loadToc(bookId, title){
+  const out=$('#tocOut'); out.innerHTML='<div class="hint">加载《'+esc(title)+'》目录中…</div>';
+  const d=await api('/api/book/chapters',{bookId});
+  const chs=d.chapters||[];
+  if(!chs.length){ out.innerHTML='<div class="hint">该书无目录数据或暂不支持。</div>'; return; }
+  let html='<div class="card"><h3>《'+esc(title)+'》目录结构 <a id="tocReadLink" href="javascript:void(0)" onclick="openBook(\''+esc(bookId)+'\')" style="font-size:13px;font-weight:normal">→ 打开阅读</a></h3><div class="toc">';
+  chs.forEach(c=>{ const lv=c.level||1; const wc=c.wordCount?('<span class="wc">'+(c.wordCount>=1000?(c.wordCount/1000).toFixed(1)+'k':c.wordCount)+'字</span>'):'';
+    html+='<div class="lv'+lv+'">'+esc(c.title)+wc+'</div>'; });
+  html+='</div>';
+  const parts=chs.filter(c=>(c.level||1)===1).length;
+  const summary='本书记载于目录共 '+chs.length+' 个章节条目，其中一级单元（篇/部/部分）'+parts+' 个'+
+    (parts? '：'+chs.filter(c=>(c.level||1)===1).slice(0,12).map(c=>esc(c.title)).join('、')+(parts>12?' 等':'') : '')+'。';
+  html+='<div class="hint" style="margin-top:10px"><b>结构总结：</b>'+summary+'</div>'+
+    '<div class="row" style="margin-top:8px"><button class="alt" onclick="deepSummary()">让 WorkBuddy 深度总结目录</button></div>'+
+    '<textarea id="tocText" style="display:none">'+esc('请基于以下《'+title+'》的目录，为读者做一份「内容脉络与阅读路线」的简要总结（200字内）：\n\n'+chs.map(c=>'  '.repeat((c.level||1)-1)+'· '+c.title).join('\n')+'\n')+'</textarea></div>';
+  out.innerHTML=html;
+}
+function deepSummary(){ const t=document.getElementById('tocText'); if(t){ copy(t.textContent);
+  toast('目录已复制，发给我即可深度总结'); } }
+
+// ---- 功能四 ----
+$('#btnCreate').onclick = async ()=>{
+  const title=$('#titleIn').value.trim(); if(!title){ toast('请输入创作主题/标题'); return; }
+  const out=$('#createOut'); out.innerHTML='<div class="hint">检索相关观点中…</div>';
+  const d=await api('/api/creation_pack',{title});
+  if(d.error){ out.innerHTML='<div class="err">失败：'+esc(d.error)+'</div>'; return; }
+  let html='<h3 class="ok">与《'+esc(d.title)+'》相关的书架观点素材</h3>';
+  html+='<div class="stat">已从你的书架中关联到 <b>'+d.related_count+'</b> 本书的相关内容'+(d.similar&&d.similar.length?('，并延展推荐 '+d.similar.length+' 本'):'')+'。</div>';
+  (d.source||[]).slice(0,15).forEach(s=>{ html+='<div class="res"><div class="meta">《'+esc(s.title)+'》 <span class="muted">'+esc(s.author)+'</span></div>';
+    (s.items||[]).slice(0,6).forEach(it=> html+='<div class="ctx" style="margin-bottom:6px">'+esc(it)+'</div>'); html+='</div>'; });
+  if(d.similar&&d.similar.length){ html+='<div class="hint"><b>延展阅读：</b>'+d.similar.map(b=>'《'+esc(b.title)+'》('+esc(b.author)+')').join('、')+'</div>'; }
+  html+='<div class="pk" id="cpk" style="margin-top:10px;white-space:pre-wrap">'+esc(d.package)+'</div>'+
+    '<div class="row" style="margin-top:8px"><button onclick="copy(document.getElementById(\'cpk\').textContent)">复制素材包</button></div>'+
+    '<div class="note">👉 把上面「素材包」发给我（WorkBuddy），并说明你的创作方向/文体（如随笔、小说开头、短视频脚本），我会帮你梳理观点、搭建结构、润色开头。</div>';
+  out.innerHTML=html;
+};
+
+async function openBook(bookId){
+  try{
+    const d=await api('/api/reader_url',{bookId});
+    if(d.appUrl){
+      // 优先用 weread:// 协议调起桌面 App
+      window.location.href=d.appUrl;
+    } else if(d.readerUrl){
+      window.open(d.readerUrl,'_blank');
+    }
+    else{ toast('无法生成阅读链接'); }
+  }catch(e){ toast('阅读链接请求失败'); }
+}
+
+// ---- 手机扫码访问 ----
+async function loadLanInfo(){
+  const el=document.getElementById('qrcode');
+  const urlEl=document.getElementById('lanUrl');
+  const warn=document.getElementById('lanWarn');
+  if(!el || el.dataset.done) return;
+  try{
+    const d=await fetch(BASE+'/api/lan_info').then(r=>r.json());
+    // 调试：把原始响应显示在控制台
+    console.log('[lan_info] 原始响应:', JSON.stringify(d));
+    if(d.host && d.host!=='127.0.0.1'){
+      const url = d.public_url || d.url || ('http://'+d.lan_ip+':'+d.port);
+      urlEl.textContent = url + (d.public_url ? '（云端公网地址）' : '');
+      try {
+        // 检查 qrcode 库是否加载成功
+        if(typeof qrcode === 'undefined'){
+          throw new Error('qrcode 库未加载');
+        }
+        const qr=qrcode(0,'M');
+        qr.addData(url);
+        qr.make();
+        const svg = qr.createSvgTag(5, 0);
+        if(!svg || !svg.includes('<svg')){
+          throw new Error('SVG 生成失败: '+String(svg).slice(0,100));
+        }
+        el.innerHTML=svg;
+        console.log('[QR] 二维码生成成功，SVG 长度:', svg.length);
+      } catch(qrErr){
+        console.error('[QR] 二维码生成失败:', qrErr);
+        // 降级：显示链接 + 手动复制提示
+        el.innerHTML='<div style="padding:16px;text-align:center;color:#666;font-size:13px"><div style="margin-bottom:8px">⚠️ 二维码生成失败</div><div style="word-break:break-all;background:#f5f5f5;padding:8px;border-radius:6px;font-family:monospace;font-size:12px">'+esc(url)+'</div><div style="margin-top:8px;font-size:12px">↑ 手机浏览器打开此地址</div></div>';
+      }
+      el.dataset.done='1';
+    }else{
+      urlEl.textContent='仅本机模式（host='+(d.host||'?')+'）';
+      if(warn) warn.style.display='block';
+      el.dataset.done='1';
+    }
+  }catch(e){
+    console.error('[lan_info] 请求失败:', e);
+    urlEl.textContent='获取局域网地址失败: '+e.message;
+  }
+}
+// 页面加载即尝试生成（不依赖点击标签）
+loadLanInfo();
+</script>
+</body>
+</html>
