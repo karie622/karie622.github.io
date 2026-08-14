@@ -1,0 +1,11 @@
+# 个人数据：不进入公开仓库（隐私保护）
+data/
+weread_api_key
+
+# 运行/缓存
+__pycache__/
+*.pyc
+*.pyo
+*.log
+.DS_Store
+Thumbs.db

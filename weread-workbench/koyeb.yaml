@@ -1,0 +1,32 @@
+# Koyeb 部署配置（可选）
+# 用法：在 Koyeb 网页后台「New App → Deploy from GitHub」时，按下方说明填写即可；
+# 也可以安装 koyeb CLI 后用 `koyeb app init` 读取本文件。
+#
+# 注意：本文件假设仓库中本应用位于 weread-workbench/ 子目录，
+# 部署时请把「Build context / Root directory」设为 weread-workbench，
+# Dockerfile 路径设为 weread-workbench/Dockerfile。
+
+app: weread-workbench
+services:
+  - name: weread-workbench
+    type: web
+    ports:
+      - port: 8000
+        type: http
+    routes:
+      - path: /
+    env:
+      # Koyeb 会自动注入 PORT，这里给出默认值
+      - PORT=8000
+      # 离线模式：读取本地 data/ 数据包，无需微信读书网关
+      - OFFLINE=1
+      # 如需开启「实时数据 / 相似书籍推荐」等在线功能，把 OFFLINE 改为 0
+      # 并填入你的微信读书 Key（本地 dev 同款的 wrk- 开头密钥）
+      - WEREAD_API_KEY=
+    docker:
+      dockerfile: Dockerfile
+    healthcheck:
+      path: /api/health
+    instances: 1
+    regions:
+      - fra

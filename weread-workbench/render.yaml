@@ -3,7 +3,6 @@
 services:
   - type: web
     name: weread-workbench
-    rootDir: weread-workbench
     runtime: python
     plan: free
     buildCommand: "true"

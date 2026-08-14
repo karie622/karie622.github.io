@@ -99,6 +99,23 @@ def weread_scheme_url(book_id):
 
 KEY = load_key()
 
+# 离线模式：True 时所有接口只读取本地缓存（offline_bundle.json / content_index.json），
+# 不再调用任何外部接口。用于 PythonAnywhere / Koyeb 等禁止或不宜出网的部署环境。
+OFFLINE = os.environ.get("OFFLINE") == "1"
+BUNDLE_FILE = os.path.join(DATA_DIR, "offline_bundle.json")
+_bundle_cache = None
+
+
+def load_bundle():
+    """加载离线数据包（全部书的简介/划线/章节目录）。"""
+    global _bundle_cache
+    if _bundle_cache is None:
+        try:
+            _bundle_cache = json.load(open(BUNDLE_FILE, encoding="utf-8"))
+        except Exception:
+            _bundle_cache = {"shelf": {"books": []}, "books": {}}
+    return _bundle_cache
+
 
 # ---------------------------------------------------------------------------
 # 网关代理
@@ -133,6 +150,8 @@ def call_gateway(api_name, params=None, timeout=30):
 # 数据获取（带缓存）
 # ---------------------------------------------------------------------------
 def get_shelf(force=False):
+    if OFFLINE:
+        return load_bundle().get("shelf", {"books": []})
     if (not force) and os.path.exists(SHELF_CACHE):
         try:
             return json.load(open(SHELF_CACHE, encoding="utf-8"))
@@ -350,29 +369,8 @@ def categorize(shelf):
 # ---------------------------------------------------------------------------
 # 作者角色包（功能二）
 # ---------------------------------------------------------------------------
-def author_pack(book_id):
-    info = call_gateway("/book/info", {"bookId": book_id})
-    bi = info.get("bookId") and info or info.get("book", info)
-    title = info.get("title", "") or bi.get("title", "")
-    author = info.get("author", "") or bi.get("author", "")
-    intro = (info.get("intro", "") or bi.get("intro", "")).strip()
-    best = call_gateway("/book/bestbookmarks", {"bookId": book_id})
-    viewpoints = []
-    for it in (best.get("items") or [])[:18]:
-        t = (it.get("markText") or "").strip()
-        if t:
-            viewpoints.append(t)
-    # 用户在该书的划线（若有）
-    user_hl = []
-    try:
-        hl = call_gateway("/book/bookmarklist", {"bookId": book_id})
-        for u in hl.get("updated", [])[:12]:
-            t = (u.get("markText") or "").strip()
-            if t:
-                user_hl.append(t)
-    except Exception:
-        pass
-
+def _build_author_package(title, author, intro, viewpoints, user_hl):
+    """由书籍素材组装「智识身份」作者角色包文本（在线/离线共用）。"""
     lines = []
     lines.append("【智识身份 · 作者角色构建】")
     lines.append("")
@@ -436,12 +434,63 @@ def author_pack(book_id):
     lines.append("4. 最后找\"破绽\"： 哪个地方他自己也解释得费力？那是他作为\"角色\"最人性化的时刻。")
     lines.append("")
     lines.append("现在，以《%s》作者【%s】的身份，回应这位读者的提问与交流。" % (title, author))
-    package = "\n".join(lines)
+    return "\n".join(lines)
 
+
+def author_pack(book_id):
+    """在线版：实时抓取书籍素材，组装作者角色包。"""
+    if OFFLINE:
+        return author_pack_offline(book_id)
+    info = call_gateway("/book/info", {"bookId": book_id})
+    bi = info.get("bookId") and info or info.get("book", info)
+    title = info.get("title", "") or bi.get("title", "")
+    author = info.get("author", "") or bi.get("author", "")
+    intro = (info.get("intro", "") or bi.get("intro", "")).strip()
+    best = call_gateway("/book/bestbookmarks", {"bookId": book_id})
+    viewpoints = []
+    for it in (best.get("items") or [])[:18]:
+        t = (it.get("markText") or "").strip()
+        if t:
+            viewpoints.append(t)
+    # 用户在该书的划线（若有）
+    user_hl = []
+    try:
+        hl = call_gateway("/book/bookmarklist", {"bookId": book_id})
+        for u in hl.get("updated", [])[:12]:
+            t = (u.get("markText") or "").strip()
+            if t:
+                user_hl.append(t)
+    except Exception:
+        pass
+    package = _build_author_package(title, author, intro, viewpoints, user_hl)
     return {
         "title": title, "author": author,
         "package": package,
         "source": {"intro": intro, "viewpoints": viewpoints, "user_highlights": user_hl},
+    }
+
+
+def author_pack_offline(book_id):
+    """离线版：从 offline_bundle.json 读取书籍素材，组装作者角色包。"""
+    b = load_bundle().get("books", {}).get(book_id, {}) or {}
+    title = b.get("title", "")
+    author = b.get("author", "")
+    intro = b.get("intro", "")
+    viewpoints = b.get("viewpoints", []) or []
+    user_hl = b.get("user_highlights", []) or []
+    if not title:
+        # 离线包里 info 没抓到标题时，用书架兜底
+        for x in load_bundle().get("shelf", {}).get("books", []):
+            if x.get("bookId") == book_id:
+                title = x.get("title", "")
+                author = x.get("author", "")
+                break
+    package = _build_author_package(title, author, intro, viewpoints, user_hl)
+    return {
+        "title": title, "author": author,
+        "package": package,
+        "source": {"intro": intro, "viewpoints": viewpoints, "user_highlights": user_hl},
+        "offline": True,
     }
 
 
@@ -488,7 +537,7 @@ def creation_pack(title):
         core_book = max(related.items(), key=lambda kv: len(kv[1]["items"]))[0]
 
     similar = []
-    if core_book:
+    if core_book and not OFFLINE:
         try:
             sm = call_gateway("/book/similar", {"bookId": core_book, "count": 8})
             for b in sm.get("books", [])[:8]:
@@ -626,7 +675,7 @@ class Handler(BaseHTTPRequestHandler):
             elif path == "/api/build_index":
                 self._send(build_index())
             elif path == "/api/search_content":
-                self._send(search_content(payload.get("keyword", ""), int(payload.get("ctx", 220))))
+                self._send(search_content(payload.get("keyword", ""), int(payload.get("ctx", 80))))
             elif path == "/api/categories":
                 self._send(categorize(get_shelf()))
             elif path == "/api/author_pack":
