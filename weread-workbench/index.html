@@ -57,8 +57,10 @@
   .toc .lv2{padding-left:18px;color:#374151}
   .toc .lv3{padding-left:36px;color:var(--sub);font-size:13px}
   .toc .wc{color:var(--sub);font-size:11px;margin-left:6px}
-  .toc .ch-link{color:#16a34a;font-size:11px;white-space:nowrap;text-decoration:none;border:1px solid #16a34a33;border-radius:4px;padding:0 5px;margin-left:6px;cursor:pointer;display:inline-block;line-height:1.7}
-  .toc .ch-link:hover{background:#dcfce7;color:#15803d;border-color:#16a34a}
+  .toc .toc-item{cursor:pointer;border-radius:6px;transition:background .15s,color .15s}
+  .toc .toc-item:hover{background:#ecfdf5;color:#15803d}
+  .toc .toc-item .arrow{opacity:0;font-size:11px;margin-left:6px;transition:opacity .15s;color:#16a34a}
+  .toc .toc-item:hover .arrow{opacity:1}
   .pk{white-space:pre-wrap;background:#0f172a;color:#e2e8f0;padding:14px;border-radius:10px;font-size:13px;line-height:1.6;max-height:420px;overflow:auto;font-family:ui-monospace,Menlo,Consolas,monospace}
   .note{background:#fffbeb;border:1px solid #fde68a;color:#92400e;padding:10px 12px;border-radius:10px;font-size:12.5px;margin-top:10px}
   .ok{color:var(--brand-d);font-weight:600}
@@ -225,9 +227,8 @@ $('#btnSearch').onclick = async ()=>{
     if(!d.results.length){ out.innerHTML='<div class="hint">未在你的划线/想法中找到「'+esc(kw)+'」相关内容。可尝试更短的关键词，或先在微信读书里给该书做几条划线。</div>'; return; }
     out.innerHTML='<div class="stat">共找到 <b>'+d.count+'</b> 处命中（显示前 '+d.results.length+' 处）：</div>';
     d.results.forEach(r=>{
-      const appUrl = r.appUrl || '';
       const readUrl = r.readerUrl || (r.bookId ? 'https://weread.qq.com/web/reader/'+esc(r.bookId) : '');
-      const link = appUrl ? '<a href="'+esc(appUrl)+'" title="调起微信读书桌面App打开本书">打开阅读 ↗</a>' : (readUrl ? '<a href="'+readUrl+'" target="_blank" title="网页版（可能需要App）">网页阅读 ↗</a>':'');
+      const link = readUrl ? '<a href="'+readUrl+'" target="_blank" title="在浏览器打开微信读书">打开阅读 ↗</a>' : '';
       const badge = r.type==='note'? '<span class="badge nt">你的想法</span>':'<span class="badge hl">划线</span>';
       out.insertAdjacentHTML('beforeend',
         '<div class="res"><div class="meta">《'+esc(r.title)+'》 '+esc(r.author)+' '+badge+' <span class="muted">· '+esc(r.chapterTitle)+'</span> '+link+'</div>'+
@@ -245,7 +246,7 @@ $('#btnPick').onclick = async ()=>{
   const list=ALL_BOOKS.filter(b=>(b.title+' '+b.author).toLowerCase().includes(q)).slice(0,40);
   const el=$('#pickList');
   if(!list.length){ el.innerHTML='<div class="hint">未匹配到书籍</div>'; return; }
-  el.innerHTML=list.map(b=>'<div class="bitem" data-id="'+esc(b.bookId)+'"><span>《'+esc(b.title)+'》</span><span class="au">'+esc(b.author)+'</span>'+(b.appUrl?'<a href="'+esc(b.appUrl)+'" title="调起桌面App" class="read-btn">阅读</a>':(b.readerUrl?'<a href="'+esc(b.readerUrl)+'" target="_blank" class="read-btn">网页</a>':''))+'</div>').join('');
+  el.innerHTML=list.map(b=>'<div class="bitem" data-id="'+esc(b.bookId)+'"><span>《'+esc(b.title)+'》</span><span class="au">'+esc(b.author)+'</span>'+readLinks(b)+'</div>').join('');
   el.querySelectorAll('.bitem').forEach(it=>it.onclick=()=>{ $('#bookIdInput').value=it.dataset.id;
     el.querySelectorAll('.bitem').forEach(x=>x.style.background=''); it.style.background='#d1fae5'; toast('已选择：'+it.querySelector('span').textContent); });
 };
@@ -279,7 +280,7 @@ function renderBookList(cat){
   filtered=books;
   const el=$('#bookList');
   if(!books.length){ el.innerHTML='<div class="hint">无匹配书籍</div>'; return; }
-  el.innerHTML=books.slice(0,300).map(b=>'<div class="bitem" data-id="'+esc(b.bookId)+'"><span>《'+esc(b.title)+'》</span><span class="au">'+esc(b.author)+'</span>'+(b.appUrl?'<a href="'+esc(b.appUrl)+'" title="调起桌面App" class="read-btn">阅读</a>':(b.readerUrl?'<a href="'+esc(b.readerUrl)+'" target="_blank" class="read-btn">网页</a>':''))+'</div>').join('');
+  el.innerHTML=books.slice(0,300).map(b=>'<div class="bitem" data-id="'+esc(b.bookId)+'"><span>《'+esc(b.title)+'》</span><span class="au">'+esc(b.author)+'</span>'+readLinks(b)+'</div>').join('');
   el.querySelectorAll('.bitem').forEach(it=>it.onclick=()=>loadToc(it.dataset.id, it.querySelector('span').textContent));
 }
 $('#bookFilter').oninput=()=>{ const act=document.querySelector('#catChips .chip.active'); if(act) renderBookList(act.dataset.cat); };
@@ -292,8 +293,10 @@ async function loadToc(bookId, title){
   chs.forEach(c=>{ const lv=c.level||1; const wc=c.wordCount?('<span class="wc">'+(c.wordCount>=1000?(c.wordCount/1000).toFixed(1)+'k':c.wordCount)+'字</span>'):'';
     const uid=c.chapterUid!=null?c.chapterUid:'';
     const chUrl=uid?'https://weread.qq.com/web/reader/'+esc(bookId)+'?chapterUid='+encodeURIComponent(uid):'';
-    const btn=chUrl?'<a href="'+chUrl+'" target="_blank" class="ch-link" title="在微信读书中打开本章原文">打开 ↗</a>':'';
-    html+='<div class="lv'+lv+'">'+esc(c.title)+wc+btn+'</div>'; });
+    const cls = chUrl? ('lv'+lv+' toc-item') : ('lv'+lv);
+    const act = chUrl? (' onclick="window.open(\''+chUrl+'\',\'_blank\')" title="点击在微信读书中打开本章原文"') : '';
+    const arrow = chUrl? '<span class="arrow">↗</span>' : '';
+    html+='<div class="'+cls+'"'+act+'>'+esc(c.title)+wc+arrow+'</div>'; });
   html+='</div>';
   const parts=chs.filter(c=>(c.level||1)===1).length;
   const summary='本书记载于目录共 '+chs.length+' 个章节条目，其中一级单元（篇/部/部分）'+parts+' 个'+
@@ -323,17 +326,17 @@ $('#btnCreate').onclick = async ()=>{
   out.innerHTML=html;
 };
 
-async function openBook(bookId){
-  try{
-    const d=await api('/api/reader_url',{bookId});
-    if(d.appUrl){
-      // 优先用 weread:// 协议调起桌面 App
-      window.location.href=d.appUrl;
-    } else if(d.readerUrl){
-      window.open(d.readerUrl,'_blank');
-    }
-    else{ toast('无法生成阅读链接'); }
-  }catch(e){ toast('阅读链接请求失败'); }
+// 在浏览器/手机网页中打开微信读书网页阅读器（避免 weread:// 协议在新标签页黑屏）
+function openBook(bookId){
+  const url='https://weread.qq.com/web/reader/'+esc(bookId);
+  window.open(url,'_blank');
+}
+// 渲染书籍的「阅读」链接：优先网页阅读器（浏览器/手机通用，不会黑屏），其次 App 协议
+function readLinks(b){
+  const web=b.readerUrl||(b.bookId?'https://weread.qq.com/web/reader/'+esc(b.bookId):'');
+  const w = web? '<a href="'+esc(web)+'" target="_blank" class="read-btn" title="在浏览器打开微信读书">阅读</a>' : '';
+  const a = b.appUrl? '<a href="'+esc(b.appUrl)+'" class="read-btn" title="调起微信读书App">App</a>' : '';
+  return w+a;
 }
 
 // ---- 手机扫码访问 ----
