@@ -1,0 +1,9 @@
+__pycache__/
+*.pyc
+*.pyo
+server.log
+.git
+.gitignore
+.DS_Store
+*.zip
+Thumbs.db

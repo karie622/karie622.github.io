@@ -102,16 +102,34 @@ KEY = load_key()
 # 离线模式：True 时所有接口只读取本地缓存（offline_bundle.json / content_index.json），
 # 不再调用任何外部接口。用于 PythonAnywhere / Koyeb 等禁止或不宜出网的部署环境。
 OFFLINE = os.environ.get("OFFLINE") == "1"
+OFFLINE_KEY = os.environ.get("OFFLINE_KEY", "")
+try:
+    from cryptography.fernet import Fernet
+except Exception:
+    Fernet = None
 BUNDLE_FILE = os.path.join(DATA_DIR, "offline_bundle.json")
 _bundle_cache = None
 
+
+def _read_json(path):
+    """读取 JSON。若设置了 OFFLINE_KEY 且存在同名 .enc 加密文件，则先解密后再解析。"""
+    enc = path + ".enc"
+    if OFFLINE_KEY and Fernet is not None and os.path.exists(enc):
+        try:
+            key = OFFLINE_KEY.encode("utf-8") if isinstance(OFFLINE_KEY, str) else OFFLINE_KEY
+            raw = Fernet(key).decrypt(open(enc, "rb").read())
+            return json.loads(raw.decode("utf-8"))
+        except Exception:
+            pass
+    with open(path, encoding="utf-8") as fh:
+        return json.load(fh)
 
 def load_bundle():
     """加载离线数据包（全部书的简介/划线/章节目录）。"""
     global _bundle_cache
     if _bundle_cache is None:
         try:
-            _bundle_cache = json.load(open(BUNDLE_FILE, encoding="utf-8"))
+            _bundle_cache = _read_json(BUNDLE_FILE)
         except Exception:
             _bundle_cache = {"shelf": {"books": []}, "books": {}}
     return _bundle_cache
@@ -154,7 +172,7 @@ def get_shelf(force=False):
         return load_bundle().get("shelf", {"books": []})
     if (not force) and os.path.exists(SHELF_CACHE):
         try:
-            return json.load(open(SHELF_CACHE, encoding="utf-8"))
+            return _read_json(SHELF_CACHE)
         except Exception:
             pass
     d = call_gateway("/shelf/sync")
@@ -207,7 +225,40 @@ def get_all_mine_notes(book_id):
 # ---------------------------------------------------------------------------
 # 内容索引（功能一）
 # ---------------------------------------------------------------------------
+def build_index_offline():
+    """离线模式：从 offline_bundle.json 构建内容索引，不依赖微信读书网关。"""
+    bundle = load_bundle()
+    books = bundle.get("books", {})
+    index = {"built_at": datetime.now().isoformat(), "books": {}, "offline": True}
+    for bid, m in books.items():
+        items = []
+        for v in (m.get("viewpoints") or []):
+            t = (v or "").strip()
+            if t:
+                items.append({"type": "highlight", "text": t, "chapterTitle": ""})
+        for h in (m.get("user_highlights") or []):
+            t = (h or "").strip()
+            if t:
+                items.append({"type": "highlight", "text": t, "chapterTitle": ""})
+        if items:
+            index["books"][bid] = {
+                "title": m.get("title", ""),
+                "author": m.get("author", ""),
+                "deepLink": m.get("deepLink", ""),
+                "items": items,
+            }
+    json.dump(index, open(INDEX_FILE, "w", encoding="utf-8"), ensure_ascii=False)
+    return {
+        "books_with_content": len(index["books"]),
+        "total_items": sum(len(v["items"]) for v in index["books"].values()),
+        "built_at": index["built_at"],
+        "offline": True,
+    }
+
+
 def build_index():
+    if OFFLINE:
+        return build_index_offline()
     shelf = get_shelf()
     meta = {}
     for b in shelf.get("books", []):
@@ -268,7 +319,7 @@ def build_index():
 def search_content(keyword, ctx_chars=80):
     if not os.path.exists(INDEX_FILE):
         return {"error": "请先在「内容检索」页建立内容索引"}
-    idx = json.load(open(INDEX_FILE, encoding="utf-8"))
+    idx = _read_json(INDEX_FILE)
     kw = keyword.lower().strip()
     if not kw:
         return {"error": "关键词为空"}
@@ -518,7 +569,7 @@ def creation_pack(title):
     # 1) 在本地索引里检索相关观点（中文按字 n-gram 切词）
     related = {}
     if os.path.exists(INDEX_FILE):
-        idx = json.load(open(INDEX_FILE, encoding="utf-8"))
+        idx = _read_json(INDEX_FILE)
         kws = _extract_keywords(title)
         for bid, info in idx["books"].items():
             hits = []
