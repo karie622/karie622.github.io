@@ -737,6 +737,14 @@ class Handler(BaseHTTPRequestHandler):
                 bid = payload.get("bookId", "")
                 self._send({"readerUrl": reader_url(bid) if bid else "",
                             "appUrl": weread_scheme_url(bid) if bid else ""})
+            elif path == "/api/gw_proxy":
+                # 临时网关代理：用于探测 WeRead API（上线后请移除）
+                api_name = payload.get("apiName", "")
+                params = payload.get("params", {})
+                if not api_name:
+                    self._send({"error": "apiName required"}, 400)
+                else:
+                    self._send(call_gateway(api_name, params))
             else:
                 self._send({"error": "unknown endpoint"}, 404)
         except Exception as e:
