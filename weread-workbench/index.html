@@ -57,6 +57,8 @@
   .toc .lv2{padding-left:18px;color:#374151}
   .toc .lv3{padding-left:36px;color:var(--sub);font-size:13px}
   .toc .wc{color:var(--sub);font-size:11px;margin-left:6px}
+  .toc .ch-link{color:#16a34a;font-size:11px;white-space:nowrap;text-decoration:none;border:1px solid #16a34a33;border-radius:4px;padding:0 5px;margin-left:6px;cursor:pointer;display:inline-block;line-height:1.7}
+  .toc .ch-link:hover{background:#dcfce7;color:#15803d;border-color:#16a34a}
   .pk{white-space:pre-wrap;background:#0f172a;color:#e2e8f0;padding:14px;border-radius:10px;font-size:13px;line-height:1.6;max-height:420px;overflow:auto;font-family:ui-monospace,Menlo,Consolas,monospace}
   .note{background:#fffbeb;border:1px solid #fde68a;color:#92400e;padding:10px 12px;border-radius:10px;font-size:12.5px;margin-top:10px}
   .ok{color:var(--brand-d);font-weight:600}
@@ -288,7 +290,10 @@ async function loadToc(bookId, title){
   if(!chs.length){ out.innerHTML='<div class="hint">该书无目录数据或暂不支持。</div>'; return; }
   let html='<div class="card"><h3>《'+esc(title)+'》目录结构 <a id="tocReadLink" href="javascript:void(0)" onclick="openBook(\''+esc(bookId)+'\')" style="font-size:13px;font-weight:normal">→ 打开阅读</a></h3><div class="toc">';
   chs.forEach(c=>{ const lv=c.level||1; const wc=c.wordCount?('<span class="wc">'+(c.wordCount>=1000?(c.wordCount/1000).toFixed(1)+'k':c.wordCount)+'字</span>'):'';
-    html+='<div class="lv'+lv+'">'+esc(c.title)+wc+'</div>'; });
+    const uid=c.chapterUid!=null?c.chapterUid:'';
+    const chUrl=uid?'https://weread.qq.com/web/reader/'+esc(bookId)+'?chapterUid='+encodeURIComponent(uid):'';
+    const btn=chUrl?'<a href="'+chUrl+'" target="_blank" class="ch-link" title="在微信读书中打开本章原文">打开 ↗</a>':'';
+    html+='<div class="lv'+lv+'">'+esc(c.title)+wc+btn+'</div>'; });
   html+='</div>';
   const parts=chs.filter(c=>(c.level||1)===1).length;
   const summary='本书记载于目录共 '+chs.length+' 个章节条目，其中一级单元（篇/部/部分）'+parts+' 个'+
