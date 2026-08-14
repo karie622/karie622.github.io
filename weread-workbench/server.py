@@ -732,23 +732,6 @@ class Handler(BaseHTTPRequestHandler):
                 bid = payload.get("bookId", "")
                 self._send({"readerUrl": reader_url(bid) if bid else "",
                             "appUrl": weread_scheme_url(bid) if bid else ""})
-            elif path == "/api/debug_groups":
-                import os as _os
-                enc = BOOK_GROUPS_FILE + ".enc"
-                info = {"BOOK_GROUPS_FILE": BOOK_GROUPS_FILE,
-                        "enc_exists": _os.path.exists(enc),
-                        "plain_exists": _os.path.exists(BOOK_GROUPS_FILE),
-                        "OFFLINE": OFFLINE, "has_key": bool(OFFLINE_KEY),
-                        "map_entries": len(get_book_groups())}
-                if _os.path.exists(enc) and OFFLINE_KEY and Fernet is not None:
-                    try:
-                        raw = Fernet(OFFLINE_KEY.encode()).decrypt(open(enc, "rb").read())
-                        info["decrypt_ok"] = True
-                        info["decrypt_len"] = len(raw)
-                    except Exception as e:
-                        info["decrypt_ok"] = False
-                        info["decrypt_err"] = str(e)[:120]
-                self._send(info)
             else:
                 self._send({"error": "unknown endpoint"}, 404)
         except Exception as e:

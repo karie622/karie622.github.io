@@ -6,6 +6,9 @@ weread_api_key
 # 例外已在下方放行
 !data/*.enc
 
+# 分组映射（仅 bookId→分组名，无私密笔记内容）在线/离线模式均需，放行明文
+!data/book_groups.json
+
 # 运行/缓存
 __pycache__/
 *.pyc
