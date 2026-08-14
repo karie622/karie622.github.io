@@ -370,29 +370,26 @@ def search_content(keyword, ctx_chars=80):
 # ---------------------------------------------------------------------------
 # 分类 / 书单（功能三）
 # ---------------------------------------------------------------------------
-CATEGORY_RULES = [
-    ("细雨·虚空法界系列", ["细雨", "虚空法界", "已知的实相", "思想的阶梯", "观影说", "失忆的归途",
-                            "隐秘的医案", "破幻", "三正道", "道医", "九宫格", "浪子之心", "意识微尘", "承前启后"]),
-    ("心理学·情绪管理", ["情绪", "理性情绪", "埃利斯", "接纳", "认知", "正念", "冥想", "心理", "疗愈",
-                          "自我", "焦虑", "压力", "关系", "沟通", "共情", "潜意识", "原生家庭"]),
-    ("灵性·身心灵", ["灵性", "觉醒", "意识", "能量", "修行", "禅", "佛", "道", "量子", "频率", "共振",
-                      "灵魂", "轮回", "因果", "慈悲", "临在", "当下", "合一", "光", "高频"]),
-    ("科幻·小说", ["三体", "刘慈欣", "科幻", "小说", "银河", "基地", "星际", "未来", "人工智能", "机器人",
-                    "元宇宙", "赛博"]),
-    ("商业·投资·财富", ["投资", "财富", "商业", "经济", "管理", "股票", "理财", "创业", "营销", "销售",
-                          "财务", "资本", "复利"]),
-    ("历史·文化·哲学", ["历史", "中国", "文化", "文明", "哲学", "中庸", "论语", "老子", "庄子", "孔子",
-                          "史记", "西方", "思想史", "社会", "政治"]),
-    ("健康·医学·养生", ["健康", "医", "营养", "身体", "养生", "睡眠", "饮食", "运动", "中医", "西医",
-                          "疾病", "康复", "生理"]),
-    ("教育·学习·成长", ["学习", "教育", "阅读", "写作", "记忆", "思维", "逻辑", "方法", "习惯", "效率",
-                          "时间", "专注"]),
-]
+# 真实分组映射：来自用户微信读书「自定义分组」，由 /api/categories 静态导出
+# （微信读书技能网关不开放用户分组接口，故以静态映射文件承载真实分组）。
+# 文件：data/book_groups.json（在线明文 / 离线 book_groups.json.enc 加密）。
+BOOK_GROUPS_FILE = os.path.join(DATA_DIR, "book_groups.json")
+_book_groups_cache = None
+
+def get_book_groups():
+    """加载 bookId -> 分组名 的静态映射（来自用户真实分组）。"""
+    global _book_groups_cache
+    if _book_groups_cache is None:
+        try:
+            _book_groups_cache = _read_json(BOOK_GROUPS_FILE)
+        except Exception:
+            _book_groups_cache = {}
+    return _book_groups_cache
 
 
 def categorize(shelf):
-    cats = {name: {"name": name, "books": []} for name, _ in CATEGORY_RULES}
-    cats["其他"] = {"name": "其他", "books": []}
+    groups = get_book_groups()
+    cats = {}
     all_books = []
     for b in shelf.get("books", []):
         bid = b.get("bookId")
@@ -400,19 +397,17 @@ def categorize(shelf):
         author = b.get("author", "")
         deep = b.get("deepLink", "")
         ru = reader_url(bid)
-        all_books.append({"bookId": bid, "readerUrl": ru, "appUrl": weread_scheme_url(bid), "title": title, "author": author, "deepLink": deep})
-        blob = (title + " " + author).lower()
-        placed = False
-        for name, kws in CATEGORY_RULES:
-            if any(k.lower() in blob for k in kws):
-                cats[name]["books"].append({"bookId": bid, "readerUrl": ru, "appUrl": weread_scheme_url(bid), "title": title, "author": author, "deepLink": deep})
-                placed = True
-                break
-        if not placed:
-            cats["其他"]["books"].append({"bookId": bid, "readerUrl": ru, "appUrl": weread_scheme_url(bid), "title": title, "author": author, "deepLink": deep})
+        entry = {"bookId": bid, "readerUrl": ru, "appUrl": weread_scheme_url(bid),
+                 "title": title, "author": author, "deepLink": deep}
+        all_books.append(entry)
+        gname = groups.get(bid, "其他")
+        if gname not in cats:
+            cats[gname] = {"name": gname, "books": []}
+        cats[gname]["books"].append(entry)
     cat_list = [{"name": k, "count": len(v["books"]), "books": v["books"]}
                 for k, v in cats.items() if v["books"]]
-    cat_list.sort(key=lambda c: -c["count"])
+    # 排序：其他置顶（数量最多），其余按数量降序 —— 与微信读书分组顺序一致
+    cat_list.sort(key=lambda c: (c["name"] != "其他", -c["count"]))
     return {"categories": cat_list, "all_books": all_books,
             "total": len(all_books)}
 
@@ -737,14 +732,6 @@ class Handler(BaseHTTPRequestHandler):
                 bid = payload.get("bookId", "")
                 self._send({"readerUrl": reader_url(bid) if bid else "",
                             "appUrl": weread_scheme_url(bid) if bid else ""})
-            elif path == "/api/gw_proxy":
-                # 临时网关代理：用于探测 WeRead API（上线后请移除）
-                api_name = payload.get("apiName", "")
-                params = payload.get("params", {})
-                if not api_name:
-                    self._send({"error": "apiName required"}, 400)
-                else:
-                    self._send(call_gateway(api_name, params))
             else:
                 self._send({"error": "unknown endpoint"}, 404)
         except Exception as e:
