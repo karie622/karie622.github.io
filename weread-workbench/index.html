@@ -52,6 +52,15 @@
   .bitem:hover{background:#f0fdf4}
   .bitem .au{color:var(--sub);font-size:12px;white-space:nowrap}
   .bitem .read-btn{color:#16a34a;font-size:12px;white-space:nowrap;text-decoration:none;border:1px solid #16a34a33;border-radius:4px;padding:1px 6px}
+  .bitem .acts{display:flex;align-items:center;gap:6px;white-space:nowrap}
+  .move-btn{cursor:pointer;font-size:13px;opacity:.45;transition:opacity .15s;user-select:none}
+  .move-btn:hover{opacity:1}
+  .modal-mask{position:fixed;inset:0;background:rgba(0,0,0,.42);z-index:50;display:none;align-items:center;justify-content:center}
+  .modal-mask.show{display:flex}
+  .modal{background:#fff;border-radius:14px;padding:20px;width:min(440px,92vw);box-shadow:0 12px 44px rgba(0,0,0,.22)}
+  .modal h3{margin:0 0 4px;font-size:15px}
+  select{padding:9px 10px;border:1px solid var(--line);border-radius:10px;font-size:14px;outline:none;background:#fff}
+  select:focus{border-color:var(--brand)}
   .toc{background:#f8fafc;border:1px solid var(--line);border-radius:10px;padding:12px;max-height:360px;overflow:auto}
   .toc .lv1{font-weight:700;margin-top:8px}
   .toc .lv2{padding-left:18px;color:#374151}
@@ -153,6 +162,10 @@
     <div class="card">
       <h3>书籍分类 · 全部书单 · 选中书籍目录总结</h3>
       <div class="hint">下方按主题对书架（共 <span id="totalN">—</span> 本）做分类，可搜索 / 筛选；点击任意书籍查看其目录结构与简要结构总结。</div>
+      <div class="row" style="justify-content:flex-end;margin-bottom:6px">
+        <button class="ghost" onclick="exportMap()">⬇️ 导出分组映射（JSON）</button>
+        <span class="stat" id="expHint">手动调整仅保存在服务端，重新部署会重置；导出后可发我永久保存</span>
+      </div>
       <div class="chips" id="catChips"></div>
       <div class="row"><input type="text" id="bookFilter" placeholder="在书单中筛选…"></div>
       <div class="blist" id="bookList"></div>
@@ -172,6 +185,25 @@
       <div id="createOut"></div>
     </div>
   </section>
+</div>
+
+<!-- 移动分组弹窗 -->
+<div class="modal-mask" id="moveModal">
+  <div class="modal">
+    <h3>🏷️ 移动分组</h3>
+    <div class="hint" id="moveBookTitle"></div>
+    <div class="row" style="margin-top:10px">
+      <select id="moveSelect" style="flex:1"></select>
+    </div>
+    <div class="row" id="newGroupRow" style="display:none">
+      <input type="text" id="newGroupName" placeholder="输入新分组名称…">
+    </div>
+    <div class="row" style="margin-top:12px;justify-content:flex-end">
+      <button class="ghost" onclick="closeMove()">取消</button>
+      <button id="moveConfirm" onclick="confirmMove()">确定</button>
+    </div>
+    <div class="note" style="margin-top:10px">手动调整保存在服务端，重启不丢；但重新部署会重置。点上方「导出分组映射」下载最终映射，发给我即可永久保存。</div>
+  </div>
 </div>
 
 <script src="qrcode.min.js"></script>
@@ -266,6 +298,7 @@ $('#btnAuthor').onclick = async ()=>{
 let CATS=[], filtered=[];
 async function loadCategories(){ if(CATS.length) return;
   const d=await api('/api/categories',{}); CATS=d.categories||[]; $('#totalN').textContent=d.total||'?';
+  GROUP_OF={}; CATS.forEach(c=>c.books.forEach(b=>{ if(!(b.bookId in GROUP_OF)) GROUP_OF[b.bookId]=c.name; }));
   const chips=$('#catChips'); chips.innerHTML='<div class="chip active" data-cat="__all">全部 ('+ (d.total||0) +')</div>'+
     CATS.map(c=>'<div class="chip" data-cat="'+esc(c.name)+'">'+esc(c.name)+' ('+c.count+')</div>').join('');
   chips.querySelectorAll('.chip').forEach(ch=>ch.onclick=()=>{ chips.querySelectorAll('.chip').forEach(x=>x.classList.remove('active'));
@@ -280,7 +313,7 @@ function renderBookList(cat){
   filtered=books;
   const el=$('#bookList');
   if(!books.length){ el.innerHTML='<div class="hint">无匹配书籍</div>'; return; }
-  el.innerHTML=books.slice(0,300).map(b=>'<div class="bitem" data-id="'+esc(b.bookId)+'"><span>《'+esc(b.title)+'》</span><span class="au">'+esc(b.author)+'</span>'+readLinks(b)+'</div>').join('');
+  el.innerHTML=books.slice(0,300).map(b=>'<div class="bitem" data-id="'+esc(b.bookId)+'"><span>《'+esc(b.title)+'》</span><span class="au">'+esc(b.author)+'</span><span class="acts"><span class="move-btn" title="移动到分组" onclick="event.stopPropagation();openMove(\''+esc(b.bookId)+'\',\''+esc(b.title)+'\')">🏷️</span>'+readLinks(b)+'</span></div>').join('');
   el.querySelectorAll('.bitem').forEach(it=>it.onclick=()=>loadToc(it.dataset.id, it.querySelector('span').textContent));
 }
 $('#bookFilter').oninput=()=>{ const act=document.querySelector('#catChips .chip.active'); if(act) renderBookList(act.dataset.cat); };
@@ -392,6 +425,44 @@ async function loadLanInfo(){
 }
 // 页面加载即尝试生成（不依赖点击标签）
 loadLanInfo();
+
+// ---- 手动调整分组 ----
+let GROUPS=[], GROUP_OF={}, MOVE_ID='';
+async function openMove(bookId, title){
+  MOVE_ID=bookId;
+  $('#moveBookTitle').textContent='《'+title+'》';
+  if(!GROUPS.length){ try{ const d=await api('/api/groups',{}); GROUPS=d.groups||[]; }catch(e){ GROUPS=[]; } }
+  const cur=GROUP_OF[bookId]||'';
+  const sel=$('#moveSelect');
+  sel.innerHTML = GROUPS.map(g=>'<option value="'+esc(g)+'"'+(g===cur?' selected':'')+'>'+esc(g)+'</option>').join('')
+    + '<option value="__new__">➕ 新建分组…</option>';
+  sel.value = cur || (GROUPS[0]||'__new__');
+  $('#newGroupRow').style.display='none';
+  $('#moveModal').classList.add('show');
+}
+$('#moveSelect').onchange=()=>{ $('#newGroupRow').style.display = $('#moveSelect').value==='__new__'?'flex':'none'; };
+function closeMove(){ $('#moveModal').classList.remove('show'); MOVE_ID=''; }
+async function confirmMove(){
+  const sel=$('#moveSelect'); let g=sel.value;
+  if(g==='__new__'){ g=$('#newGroupName').value.trim(); if(!g){ toast('请输入新分组名称'); return; } }
+  if(!g) return;
+  try{
+    const d=await api('/api/move_book',{bookId:MOVE_ID, group:g});
+    if(d.ok){ toast('已移至：'+g); closeMove(); await reloadCategories(); }
+    else toast('移动失败：'+(d.errmsg||'未知'));
+  }catch(e){ toast('请求失败：'+e); }
+}
+async function reloadCategories(){ CATS=[]; GROUP_OF={}; await loadCategories();
+  const act=document.querySelector('#catChips .chip.active'); if(act) renderBookList(act.dataset.cat); }
+async function exportMap(){
+  try{
+    const d=await api('/api/export_map',{});
+    const blob=new Blob([JSON.stringify(d,null,2)],{type:'application/json'});
+    const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download='book_groups.json'; a.click();
+    setTimeout(()=>URL.revokeObjectURL(a.href),1000);
+    toast('已导出 book_groups.json');
+  }catch(e){ toast('导出失败：'+e); }
+}
 </script>
 </body>
 </html>

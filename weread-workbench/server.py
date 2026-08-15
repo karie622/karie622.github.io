@@ -168,21 +168,8 @@ def call_gateway(api_name, params=None, timeout=30):
 # 数据获取（带缓存）
 # ---------------------------------------------------------------------------
 def get_shelf(force=False):
-    """获取书架：优先实时拉取；失败时回退到本地缓存的 shelf.json（明文体）。
-
-    这样即便微信读书网关屏蔽了数据中心 IP（Railway 等云端常见），
-    或离线密钥 OFFLINE_KEY 未注入导致 .enc 解密失败，分组功能仍可用——
-    书架数据来自部署时随仓库提交的 shelf.json 快照。"""
     if OFFLINE:
-        b = load_bundle().get("shelf", {})
-        if b.get("books"):
-            return b
-        if os.path.exists(SHELF_CACHE):
-            try:
-                return _read_json(SHELF_CACHE)
-            except Exception:
-                pass
-        return {"books": []}
+        return load_bundle().get("shelf", {"books": []})
     if (not force) and os.path.exists(SHELF_CACHE):
         try:
             return _read_json(SHELF_CACHE)
@@ -191,14 +178,7 @@ def get_shelf(force=False):
     d = call_gateway("/shelf/sync")
     if d.get("errcode", 0) == 0 and ("books" in d or "albums" in d or "mp" in d):
         json.dump(d, open(SHELF_CACHE, "w", encoding="utf-8"), ensure_ascii=False)
-        return d
-    # 实时拉取失败（网关屏蔽 IP / Key 缺失）：回退本地缓存快照
-    if os.path.exists(SHELF_CACHE):
-        try:
-            return _read_json(SHELF_CACHE)
-        except Exception:
-            pass
-    return {"books": []}
+    return d
 
 
 def get_notebooks():
@@ -394,27 +374,58 @@ def search_content(keyword, ctx_chars=80):
 # （微信读书技能网关不开放用户分组接口，故以静态映射文件承载真实分组）。
 # 文件：data/book_groups.json（在线明文 / 离线 book_groups.json.enc 加密）。
 BOOK_GROUPS_FILE = os.path.join(DATA_DIR, "book_groups.json")
-_book_groups_cache = None
+# 手动调整分组：用户在网页端「移动分组」产生的最终覆盖，bookId -> 分组名。
+# 与基础映射分离存储，便于增量更新且不影响静态导出文件；二者合并后为最终分组。
+GROUP_OVERRIDES_FILE = os.path.join(DATA_DIR, "group_overrides.json")
+_overrides_cache = None
+_overrides_mtime = 0
+
+def load_overrides():
+    """加载手动调整覆盖（bookId -> 分组名）。带 mtime 缓存，写入后即时失效。"""
+    global _overrides_cache, _overrides_mtime
+    try:
+        mtime = os.path.getmtime(GROUP_OVERRIDES_FILE)
+    except Exception:
+        mtime = -1
+    if _overrides_cache is None or mtime != _overrides_mtime:
+        try:
+            _overrides_cache = _read_json(GROUP_OVERRIDES_FILE) if os.path.exists(GROUP_OVERRIDES_FILE) else {}
+        except Exception:
+            _overrides_cache = {}
+        _overrides_mtime = mtime
+    return _overrides_cache
+
+def save_overrides(ov):
+    """原子写入手动调整覆盖并刷新缓存。"""
+    global _overrides_cache, _overrides_mtime
+    with _lock:
+        tmp = GROUP_OVERRIDES_FILE + ".tmp"
+        json.dump(ov, open(tmp, "w", encoding="utf-8"), ensure_ascii=False, indent=2)
+        os.replace(tmp, GROUP_OVERRIDES_FILE)
+    _overrides_cache = ov
+    try:
+        _overrides_mtime = os.path.getmtime(GROUP_OVERRIDES_FILE)
+    except Exception:
+        pass
 
 def get_book_groups():
-    """加载 bookId -> 分组名 的静态映射（来自用户真实分组）。"""
-    global _book_groups_cache
-    if _book_groups_cache is None:
-        try:
-            _book_groups_cache = _read_json(BOOK_GROUPS_FILE)
-        except Exception:
-            _book_groups_cache = {}
-    return _book_groups_cache
+    """最终分组映射 = 基础静态映射 ∪ 手动调整覆盖（覆盖优先）。"""
+    try:
+        base = _read_json(BOOK_GROUPS_FILE) if os.path.exists(BOOK_GROUPS_FILE) else {}
+    except Exception:
+        base = {}
+    ov = load_overrides()
+    merged = dict(base)
+    merged.update(ov)
+    return merged
 
 
 def categorize(shelf):
     groups = get_book_groups()
     cats = {}
     all_books = []
-    seen = set()
     for b in shelf.get("books", []):
         bid = b.get("bookId")
-        seen.add(bid)
         title = b.get("title", "")
         author = b.get("author", "")
         deep = b.get("deepLink", "")
@@ -426,15 +437,6 @@ def categorize(shelf):
         if gname not in cats:
             cats[gname] = {"name": gname, "books": []}
         cats[gname]["books"].append(entry)
-    # 补充：映射里有、但书架缓存里缺失的书（避免分组漏书）
-    for bid, gname in groups.items():
-        if bid in seen:
-            continue
-        entry = {"bookId": bid, "readerUrl": reader_url(bid),
-                 "appUrl": weread_scheme_url(bid),
-                 "title": "", "author": "", "deepLink": ""}
-        all_books.append(entry)
-        cats.setdefault(gname, {"name": gname, "books": []})["books"].append(entry)
     cat_list = [{"name": k, "count": len(v["books"]), "books": v["books"]}
                 for k, v in cats.items() if v["books"]]
     # 排序：其他置顶（数量最多），其余按数量降序 —— 与微信读书分组顺序一致
@@ -763,6 +765,25 @@ class Handler(BaseHTTPRequestHandler):
                 bid = payload.get("bookId", "")
                 self._send({"readerUrl": reader_url(bid) if bid else "",
                             "appUrl": weread_scheme_url(bid) if bid else ""})
+            elif path == "/api/groups":
+                # 返回当前所有分组名（供「移动分组」下拉框使用）
+                gmap = get_book_groups()
+                names = sorted(set(gmap.values()))
+                self._send({"groups": names})
+            elif path == "/api/move_book":
+                # 手动调整：将某本书移动到指定分组（分组不存在则自动新建）
+                bid = payload.get("bookId", "")
+                g = (payload.get("group") or "").strip()
+                if not bid or not g:
+                    self._send({"errcode": -1, "errmsg": "bookId 与 group 均必填"}, 400)
+                    return
+                ov = load_overrides()
+                ov[bid] = g
+                save_overrides(ov)
+                self._send({"ok": True, "bookId": bid, "group": g})
+            elif path == "/api/export_map":
+                # 导出最终合并后的分组映射（基础 + 手动调整），供下载/永久保存
+                self._send(get_book_groups())
             else:
                 self._send({"error": "unknown endpoint"}, 404)
         except Exception as e:
