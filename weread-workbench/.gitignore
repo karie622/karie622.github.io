@@ -8,6 +8,8 @@ weread_api_key
 
 # 分组映射（仅 bookId→分组名，无私密笔记内容）在线/离线模式均需，放行明文
 !data/book_groups.json
+# 书架缓存快照（仅 bookId/title/author/deepLink，无笔记内容）作为离线回退数据源，放行明文
+!data/shelf.json
 
 # 运行/缓存
 __pycache__/

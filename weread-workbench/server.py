@@ -168,8 +168,21 @@ def call_gateway(api_name, params=None, timeout=30):
 # 数据获取（带缓存）
 # ---------------------------------------------------------------------------
 def get_shelf(force=False):
+    """获取书架：优先实时拉取；失败时回退到本地缓存的 shelf.json（明文体）。
+
+    这样即便微信读书网关屏蔽了数据中心 IP（Railway 等云端常见），
+    或离线密钥 OFFLINE_KEY 未注入导致 .enc 解密失败，分组功能仍可用——
+    书架数据来自部署时随仓库提交的 shelf.json 快照。"""
     if OFFLINE:
-        return load_bundle().get("shelf", {"books": []})
+        b = load_bundle().get("shelf", {})
+        if b.get("books"):
+            return b
+        if os.path.exists(SHELF_CACHE):
+            try:
+                return _read_json(SHELF_CACHE)
+            except Exception:
+                pass
+        return {"books": []}
     if (not force) and os.path.exists(SHELF_CACHE):
         try:
             return _read_json(SHELF_CACHE)
@@ -178,7 +191,14 @@ def get_shelf(force=False):
     d = call_gateway("/shelf/sync")
     if d.get("errcode", 0) == 0 and ("books" in d or "albums" in d or "mp" in d):
         json.dump(d, open(SHELF_CACHE, "w", encoding="utf-8"), ensure_ascii=False)
-    return d
+        return d
+    # 实时拉取失败（网关屏蔽 IP / Key 缺失）：回退本地缓存快照
+    if os.path.exists(SHELF_CACHE):
+        try:
+            return _read_json(SHELF_CACHE)
+        except Exception:
+            pass
+    return {"books": []}
 
 
 def get_notebooks():
@@ -391,8 +411,10 @@ def categorize(shelf):
     groups = get_book_groups()
     cats = {}
     all_books = []
+    seen = set()
     for b in shelf.get("books", []):
         bid = b.get("bookId")
+        seen.add(bid)
         title = b.get("title", "")
         author = b.get("author", "")
         deep = b.get("deepLink", "")
@@ -404,6 +426,15 @@ def categorize(shelf):
         if gname not in cats:
             cats[gname] = {"name": gname, "books": []}
         cats[gname]["books"].append(entry)
+    # 补充：映射里有、但书架缓存里缺失的书（避免分组漏书）
+    for bid, gname in groups.items():
+        if bid in seen:
+            continue
+        entry = {"bookId": bid, "readerUrl": reader_url(bid),
+                 "appUrl": weread_scheme_url(bid),
+                 "title": "", "author": "", "deepLink": ""}
+        all_books.append(entry)
+        cats.setdefault(gname, {"name": gname, "books": []})["books"].append(entry)
     cat_list = [{"name": k, "count": len(v["books"]), "books": v["books"]}
                 for k, v in cats.items() if v["books"]]
     # 排序：其他置顶（数量最多），其余按数量降序 —— 与微信读书分组顺序一致
