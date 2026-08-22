@@ -12,6 +12,8 @@ weread_api_key
 !data/shelf.json
 # 公开核心观点数据（热门划线 + 简介/作者，均不含个人私有笔记）云端网关不可达时回退，放行明文
 !data/book_views.json
+# 个人离线数据包（含你的划线 6527 条 + 核心观点）：已按需求放行明文，云端可检索所有划线（全网可读）
+!data/offline_bundle.json
 
 # 运行/缓存
 __pycache__/

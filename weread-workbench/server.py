@@ -261,12 +261,18 @@ def build_index_offline():
             if t and t not in seen:
                 seen.add(t)
                 items.append({"type": "best", "text": t, "chapterTitle": ""})
-        # 你的划线 / 想法（仅本地离线包含有，属私有数据，不进公开仓库）
+        # 你的划线（个人数据，已随离线包公开进仓库，云端/本地均可检索）
         for h in (m.get("user_highlights") or []):
             t = (h or "").strip()
             if t and t not in seen:
                 seen.add(t)
                 items.append({"type": "highlight", "text": t, "chapterTitle": ""})
+        # 你的想法 / 点评（同上，私有数据，仅离线本地模式可用）
+        for n in (m.get("user_notes") or []):
+            t = (n or "").strip()
+            if t and t not in seen:
+                seen.add(t)
+                items.append({"type": "note", "text": t, "note": t, "chapterTitle": ""})
         if items:
             vp_meta = vp_map.get(bid, {}) or {}
             index["books"][bid] = {
@@ -640,6 +646,7 @@ def author_pack_offline(book_id):
     intro = b.get("intro", "")
     viewpoints = b.get("viewpoints", []) or []
     user_hl = b.get("user_highlights", []) or []
+    user_nt = b.get("user_notes", []) or []
     if not title:
         # 离线包里 info 没抓到标题时，用书架兜底
         for x in load_bundle().get("shelf", {}).get("books", []):
@@ -647,11 +654,14 @@ def author_pack_offline(book_id):
                 title = x.get("title", "")
                 author = x.get("author", "")
                 break
-    package = _build_author_package(title, author, intro, viewpoints, user_hl)
+    # 你的划线 + 想法，合并作为「读者特别标注」素材
+    user_material = user_hl + user_nt
+    package = _build_author_package(title, author, intro, viewpoints, user_material)
     return {
         "title": title, "author": author,
         "package": package,
-        "source": {"intro": intro, "viewpoints": viewpoints, "user_highlights": user_hl},
+        "source": {"intro": intro, "viewpoints": viewpoints,
+                   "user_highlights": user_hl, "user_notes": user_nt},
         "offline": True,
     }
 
