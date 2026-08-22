@@ -10,6 +10,8 @@ weread_api_key
 !data/book_groups.json
 # 书架缓存快照（仅 bookId/title/author/deepLink，无笔记内容）作为离线回退数据源，放行明文
 !data/shelf.json
+# 公开核心观点数据（热门划线 + 简介/作者，均不含个人私有笔记）云端网关不可达时回退，放行明文
+!data/book_views.json
 
 # 运行/缓存
 __pycache__/

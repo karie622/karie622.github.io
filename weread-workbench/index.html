@@ -37,6 +37,7 @@
   .badge{display:inline-block;padding:2px 8px;border-radius:999px;font-size:11px;background:var(--chip);color:var(--sub);margin-left:6px}
   .badge.hl{background:#dcfce7;color:#15803d}
   .badge.nt{background:#dbeafe;color:#1d4ed8}
+  .badge.bv{background:#fef3c7;color:#b45309}
   .res{border:1px solid var(--line);border-radius:12px;padding:14px;margin-bottom:12px}
   .res .meta{font-weight:700;margin-bottom:4px}
   .res .meta a{color:var(--brand);text-decoration:none}
@@ -125,7 +126,7 @@
   <section class="panel active" id="t1">
     <div class="card">
       <h3>根据关键词检索书架中书籍的内容（含上下文）</h3>
-      <div class="hint">检索范围：你在书架书籍中保存的<b>划线</b>与<b>想法/笔记</b>（即你从书中摘录的真实内容）。首次使用需先建立本地内容索引（约十几秒，仅做一次，之后可离线检索）。</div>
+      <div class="hint">检索范围：你书架书籍的<b>划线与想法</b>，以及每本书的<b>核心观点（热门划线）</b>——即书中最能代表作者思想、被众多读者标记的句子。首次使用需先建立本地内容索引（约 1–2 分钟，仅做一次，之后可离线检索）。</div>
       <div class="row">
         <button id="btnIndex" class="ghost">① 建立 / 刷新内容索引</button>
         <span class="stat" id="indexStat"></span>
@@ -247,7 +248,7 @@ $('#btnIndex').onclick = async ()=>{
   const b=$('#btnIndex'); b.disabled=true; b.textContent='建立中…（首次约十几秒）';
   try{ const d=await api('/api/build_index',{});
     $('#indexStat').innerHTML = d.error? ('<span class="err">'+esc(d.error)+'</span>')
-      : ('<span class="ok">已索引 '+d.books_with_content+' 本书，共 '+d.total_items+' 条划线/想法</span>');
+      : ('<span class="ok">已索引 '+d.books_with_content+' 本书，共 '+d.total_items+' 条划线/核心观点</span>');
   }catch(e){ $('#indexStat').innerHTML='<span class="err">失败：'+esc(e)+'</span>'; }
   b.disabled=false; b.textContent='① 建立 / 刷新内容索引';
 };
@@ -256,12 +257,12 @@ $('#btnSearch').onclick = async ()=>{
   const out=$('#searchOut'); out.innerHTML='<div class="hint">检索中…</div>';
   try{ const d=await api('/api/search_content',{keyword:kw});
     if(d.error){ out.innerHTML='<div class="err">'+esc(d.error)+'</div>'; return; }
-    if(!d.results.length){ out.innerHTML='<div class="hint">未在你的划线/想法中找到「'+esc(kw)+'」相关内容。可尝试更短的关键词，或先在微信读书里给该书做几条划线。</div>'; return; }
+    if(!d.results.length){ out.innerHTML='<div class="hint">未在你的划线/想法与书籍核心观点中找到「'+esc(kw)+'」相关内容。可尝试更短的关键词。</div>'; return; }
     out.innerHTML='<div class="stat">共找到 <b>'+d.count+'</b> 处命中（显示前 '+d.results.length+' 处）：</div>';
     d.results.forEach(r=>{
       const readUrl = r.readerUrl || (r.bookId ? 'https://weread.qq.com/web/reader/'+esc(r.bookId) : '');
       const link = readUrl ? '<a href="'+readUrl+'" target="_blank" title="在浏览器打开微信读书">打开阅读 ↗</a>' : '';
-      const badge = r.type==='note'? '<span class="badge nt">你的想法</span>':'<span class="badge hl">划线</span>';
+      const badge = r.type==='note'? '<span class="badge nt">你的想法</span>':(r.type==='best'? '<span class="badge bv">核心观点</span>':'<span class="badge hl">划线</span>');
       out.insertAdjacentHTML('beforeend',
         '<div class="res"><div class="meta">《'+esc(r.title)+'》 '+esc(r.author)+' '+badge+' <span class="muted">· '+esc(r.chapterTitle)+'</span> '+link+'</div>'+
         '<div class="ctx">'+hl(r.context, kw)+'</div></div>');

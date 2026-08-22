@@ -108,6 +108,7 @@ try:
 except Exception:
     Fernet = None
 BUNDLE_FILE = os.path.join(DATA_DIR, "offline_bundle.json")
+BOOK_VIEWS_FILE = os.path.join(DATA_DIR, "book_views.json")
 _bundle_cache = None
 
 
@@ -133,6 +134,15 @@ def load_bundle():
         except Exception:
             _bundle_cache = {"shelf": {"books": []}, "books": {}}
     return _bundle_cache
+
+
+def load_book_views():
+    """加载公开的核心观点数据（热门划线 + 书籍简介/作者，均不含任何个人私有笔记）。
+    用于云端部署微信读书网关不可达时的回退数据源。"""
+    try:
+        return _read_json(BOOK_VIEWS_FILE)
+    except Exception:
+        return {}
 
 
 # ---------------------------------------------------------------------------
@@ -226,24 +236,42 @@ def get_all_mine_notes(book_id):
 # 内容索引（功能一）
 # ---------------------------------------------------------------------------
 def build_index_offline():
-    """离线模式：从 offline_bundle.json 构建内容索引，不依赖微信读书网关。"""
+    """离线/回退模式：构建内容索引，不依赖微信读书网关。
+    核心观点（best）优先来自公开数据 book_views.json（云端网关不可达时仍可用）；
+    若本地离线包存在，则额外并入其中的核心观点与你的划线。"""
     bundle = load_bundle()
-    books = bundle.get("books", {})
+    bundle_books = bundle.get("books", {})
+    vp_map = load_book_views()
+    # 合并书 id：公开观点数据 ∪ 本地离线包
+    all_ids = list(bundle_books.keys()) + [k for k in vp_map if k not in bundle_books]
     index = {"built_at": datetime.now().isoformat(), "books": {}, "offline": True}
-    for bid, m in books.items():
+    for bid in all_ids:
+        m = bundle_books.get(bid, {})
         items = []
+        seen = set()
+        # 核心观点：来自公开数据 book_views.json（热门划线，不含个人笔记）
+        for v in (vp_map.get(bid, {}).get("viewpoints", []) or []):
+            t = (v or "").strip()
+            if t and t not in seen:
+                seen.add(t)
+                items.append({"type": "best", "text": t, "chapterTitle": ""})
+        # 核心观点：来自本地离线包（同样为热门划线）
         for v in (m.get("viewpoints") or []):
             t = (v or "").strip()
-            if t:
-                items.append({"type": "highlight", "text": t, "chapterTitle": ""})
+            if t and t not in seen:
+                seen.add(t)
+                items.append({"type": "best", "text": t, "chapterTitle": ""})
+        # 你的划线 / 想法（仅本地离线包含有，属私有数据，不进公开仓库）
         for h in (m.get("user_highlights") or []):
             t = (h or "").strip()
-            if t:
+            if t and t not in seen:
+                seen.add(t)
                 items.append({"type": "highlight", "text": t, "chapterTitle": ""})
         if items:
+            vp_meta = vp_map.get(bid, {}) or {}
             index["books"][bid] = {
-                "title": m.get("title", ""),
-                "author": m.get("author", ""),
+                "title": m.get("title", "") or vp_meta.get("title", ""),
+                "author": m.get("author", "") or vp_meta.get("author", ""),
                 "deepLink": m.get("deepLink", ""),
                 "items": items,
             }
@@ -256,38 +284,60 @@ def build_index_offline():
     }
 
 
+def _gateway_reachable():
+    """探测微信读书网关是否可达。云端部署（如 Railway）往往被网关按 IP 屏蔽，
+    此时应回退到离线数据包，保证内容检索/观点索引对任意书都可用。"""
+    try:
+        r = call_gateway("/shelf/sync", timeout=8)
+        return r.get("errcode", 0) == 0 and ("books" in r or "albums" in r or "mp" in r)
+    except Exception:
+        return False
+
+
 def build_index():
     if OFFLINE:
+        return build_index_offline()
+    # 网关不可达（云端 IP 被屏蔽）时，直接回退到离线数据包（已含核心观点 + 你的划线）
+    if not _gateway_reachable():
         return build_index_offline()
     shelf = get_shelf()
     meta = {}
     for b in shelf.get("books", []):
         meta[b.get("bookId")] = {"title": b.get("title", ""), "author": b.get("author", ""),
                                  "deepLink": b.get("deepLink", "")}
-    notebooks = get_notebooks()
-    targets = []
-    for nb in notebooks:
-        bid = nb.get("bookId")
-        if bid and bid not in [t[0] for t in targets]:
-            targets.append((bid, meta.get(bid, {"title": "", "author": ""})))
+    # 覆盖书架全部书：每本都抓「核心观点（热门划线）」，有笔记的书额外抓你的划线/想法
+    targets = [(b.get("bookId"), meta.get(b.get("bookId"), {"title": "", "author": ""}))
+               for b in shelf.get("books", []) if b.get("bookId")]
 
     index = {"built_at": datetime.now().isoformat(), "books": {}}
 
     def fetch_one(args):
         bid, m = args
         items = []
+        seen = set()
+        def add(text, typ, **extra):
+            t = (text or "").strip()
+            if t and t not in seen:
+                seen.add(t)
+                items.append({"type": typ, "text": t,
+                              "chapterTitle": extra.get("chapterTitle", ""),
+                              "chapterUid": extra.get("chapterUid")})
+        # 核心观点（热门划线，代表作者思想）
+        try:
+            bb = call_gateway("/book/bestbookmarks", {"bookId": bid, "chapterUid": 0})
+            for it in (bb.get("items") or [])[:30]:
+                add(it.get("markText") or it.get("text"), "best",
+                    chapterUid=it.get("chapterUid"))
+        except Exception:
+            pass
         # 划线（真实书籍内容）
         try:
             hl = call_gateway("/book/bookmarklist", {"bookId": bid})
             chapters = {c.get("chapterUid"): c.get("title", "") for c in hl.get("chapters", [])}
             for u in hl.get("updated", []):
-                items.append({
-                    "type": "highlight",
-                    "text": (u.get("markText") or "").strip(),
-                    "chapterUid": u.get("chapterUid"),
-                    "chapterTitle": chapters.get(u.get("chapterUid"), ""),
-                    "createTime": u.get("createTime"),
-                })
+                add(u.get("markText"), "highlight",
+                    chapterUid=u.get("chapterUid"),
+                    chapterTitle=chapters.get(u.get("chapterUid"), ""))
         except Exception:
             pass
         # 想法/点评
@@ -338,7 +388,9 @@ def search_content(keyword, ctx_chars=80):
             ctx_parts = []
             if it.get("type") == "note" and note:
                 ctx_parts.append("▍你的想法：" + note)
-            if text:
+            elif it.get("type") == "best":
+                ctx_parts.append("▍核心观点：" + text)
+            if text and it.get("type") != "note":
                 ctx_parts.append(text)
             # 补充同章节其它划线，凑够约 80 字上下文
             for e in same:
@@ -517,35 +569,66 @@ def _build_author_package(title, author, intro, viewpoints, user_hl):
 
 
 def author_pack(book_id):
-    """在线版：实时抓取书籍素材，组装作者角色包。"""
+    """在线版：实时抓取书籍素材，组装作者角色包。
+    若微信读书网关不可达（云端部署常见），回退到公开核心观点数据。"""
     if OFFLINE:
         return author_pack_offline(book_id)
-    info = call_gateway("/book/info", {"bookId": book_id})
-    bi = info.get("bookId") and info or info.get("book", info)
-    title = info.get("title", "") or bi.get("title", "")
-    author = info.get("author", "") or bi.get("author", "")
-    intro = (info.get("intro", "") or bi.get("intro", "")).strip()
-    best = call_gateway("/book/bestbookmarks", {"bookId": book_id})
-    viewpoints = []
-    for it in (best.get("items") or [])[:18]:
-        t = (it.get("markText") or "").strip()
-        if t:
-            viewpoints.append(t)
-    # 用户在该书的划线（若有）
-    user_hl = []
     try:
-        hl = call_gateway("/book/bookmarklist", {"bookId": book_id})
-        for u in hl.get("updated", [])[:12]:
-            t = (u.get("markText") or "").strip()
+        info = call_gateway("/book/info", {"bookId": book_id})
+        bi = info.get("bookId") and info or info.get("book", info)
+        title = info.get("title", "") or bi.get("title", "")
+        author = info.get("author", "") or bi.get("author", "")
+        intro = (info.get("intro", "") or bi.get("intro", "")).strip()
+        best = call_gateway("/book/bestbookmarks", {"bookId": book_id})
+        viewpoints = []
+        for it in (best.get("items") or [])[:18]:
+            t = (it.get("markText") or "").strip()
             if t:
-                user_hl.append(t)
+                viewpoints.append(t)
+        # 用户在该书的划线（若有）
+        user_hl = []
+        try:
+            hl = call_gateway("/book/bookmarklist", {"bookId": book_id})
+            for u in hl.get("updated", [])[:12]:
+                t = (u.get("markText") or "").strip()
+                if t:
+                    user_hl.append(t)
+        except Exception:
+            pass
+        # 网关可达且拿到素材时才采用在线结果
+        if title or intro or viewpoints:
+            package = _build_author_package(title, author, intro, viewpoints, user_hl)
+            return {
+                "title": title, "author": author,
+                "package": package,
+                "source": {"intro": intro, "viewpoints": viewpoints, "user_highlights": user_hl},
+            }
     except Exception:
         pass
-    package = _build_author_package(title, author, intro, viewpoints, user_hl)
+    # 网关不可达 → 回退到公开核心观点数据（标题/作者取自书架或 book_views）
+    return author_pack_public(book_id)
+
+
+def author_pack_public(book_id):
+    """网关不可达时的回退：仅用公开数据（书架标题/作者 + 核心观点热门划线）。"""
+    vp = load_book_views().get(book_id, {}) or {}
+    title = vp.get("title", "")
+    author = vp.get("author", "")
+    intro = vp.get("intro", "")
+    viewpoints = vp.get("viewpoints", []) or []
+    if not title:
+        # book_views 没标题时，用书架明文缓存兜底
+        for x in load_bundle().get("shelf", {}).get("books", []):
+            if x.get("bookId") == book_id:
+                title = x.get("title", "")
+                author = x.get("author", "")
+                break
+    package = _build_author_package(title, author, intro, viewpoints, [])
     return {
         "title": title, "author": author,
         "package": package,
-        "source": {"intro": intro, "viewpoints": viewpoints, "user_highlights": user_hl},
+        "source": {"intro": intro, "viewpoints": viewpoints, "user_highlights": []},
+        "offline": True,
     }
 
 
@@ -638,7 +721,9 @@ def creation_pack(title):
             t = (it.get("note") or it.get("text") or "").strip()
             if t and t not in seen:
                 seen.add(t)
-                lines.append("  · %s" % t)
+                typ = it.get("type")
+                prefix = "【核心观点】" if typ == "best" else ("【你的想法】" if typ == "note" else "·")
+                lines.append("  %s %s" % (prefix, t))
                 idxn += 1
         lines.append("")
     if similar:
